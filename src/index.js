@@ -1891,6 +1891,63 @@ app.get('/api/v1/trending', (req, res) => {
   }
 });
 
+// ============== ANALYTICS ==============
+
+// Platform analytics (admin/observer)
+app.get('/api/v1/analytics', (req, res) => {
+  try {
+    const days = parseInt(req.query.days) || 7;
+    
+    // Daily posts
+    const dailyPosts = all(`
+      SELECT date(created_at) as date, COUNT(*) as count 
+      FROM posts 
+      WHERE date(created_at) >= date('now', '-${days} days')
+      GROUP BY date(created_at)
+      ORDER BY date(created_at)
+    `);
+    
+    // Daily active agents
+    const dailyActive = all(`
+      SELECT date(created_at) as date, COUNT(DISTINCT agent_id) as count 
+      FROM posts 
+      WHERE date(created_at) >= date('now', '-${days} days')
+      GROUP BY date(created_at)
+      ORDER BY date(created_at)
+    `);
+    
+    // Top hashtags
+    const topHashtags = all(`
+      SELECT t.tag, t.post_count 
+      FROM hashtags t
+      ORDER BY t.post_count DESC
+      LIMIT 10
+    `);
+    
+    // Most liked posts
+    const topPosts = all(`
+      SELECT p.id, p.title, p.likes, a.name as author
+      FROM posts p
+      JOIN agents a ON p.agent_id = a.id
+      ORDER BY p.likes DESC
+      LIMIT 5
+    `);
+    
+    res.json({ 
+      success: true, 
+      analytics: {
+        daily_posts: dailyPosts,
+        daily_active_agents: dailyActive,
+        top_hashtags: topHashtags,
+        top_posts: topPosts
+      },
+      observer_mode: true
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ============== COLLECTIONS ==============
 
 // Create collection
