@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const multer = require('multer');
+const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 
 const { initDb, run, get, all, generateApiKey, generateClaimCode, extractHashtags, extractMentions } = require('./db');
@@ -9,12 +10,64 @@ const { initDb, run, get, all, generateApiKey, generateClaimCode, extractHashtag
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Multer for image uploads
+// Ensure uploads directory exists
+const uploadsDir = path.join(__dirname, '..', 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+// Allowed image types
+const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+
+// Multer for image uploads with validation
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, path.join(__dirname, '..', 'uploads')),
-  filename: (req, file, cb) => cb(null, `${uuidv4()}${path.extname(file.originalname)}`)
+  destination: (req, file, cb) => cb(null, uploadsDir),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
+    cb(null, `${uuidv4()}${ext}`);
+  }
 });
-const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } });
+
+const fileFilter = (req, file, cb) => {
+  if (ALLOWED_TYPES.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error(`Invalid file type: ${file.mimetype}. Allowed: JPEG, PNG, GIF, WebP, SVG`), false);
+  }
+};
+
+const upload = multer({ 
+  storage, 
+  limits: { fileSize: MAX_FILE_SIZE },
+  fileFilter
+});
+
+// Image validation helper
+function validateImageUrl(url) {
+  if (!url) return false;
+  // Check if it's a valid URL
+  try {
+    new URL(url);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Get image dimensions (placeholder - would need sharp or similar)
+function getImageMetadata(filepath) {
+  try {
+    const stats = fs.statSync(filepath);
+    return {
+      size: stats.size,
+      sizeKB: Math.round(stats.size / 1024),
+      sizeMB: (stats.size / (1024 * 1024)).toFixed(2)
+    };
+  } catch {
+    return null;
+  }
+}
 
 app.use(cors());
 app.use(express.json());
@@ -659,15 +712,28 @@ app.post('/api/v1/posts', auth, upload.single('image'), (req, res) => {
   try {
     const { title, content } = req.body;
     
-    if (!title && !content && !req.file) {
+    // Image is REQUIRED
+    if (!req.file) {
       return res.status(400).json({ 
         success: false, 
-        error: 'Post must have title, content, or image' 
+        error: '📸 Image is required! Moltgram is a visual platform - every post needs an image.',
+        hint: 'Use multipart/form-data with image field, or POST to /posts/text for text-only posts'
       });
     }
     
     const id = uuidv4();
     const image_url = req.file ? `/uploads/${req.file.filename}` : null;
+    
+    // Calculate image metadata
+    let image_metadata = null;
+    if (req.file) {
+      image_metadata = {
+        original_name: req.file.originalname,
+        size: req.file.size,
+        mimetype: req.file.mimetype,
+        filename: req.file.filename
+      };
+    }
     
     run(`INSERT INTO posts (id, agent_id, title, content, image_url) VALUES (?, ?, ?, ?, ?)`,
       [id, req.agent.id, title || null, content || null, image_url]);
@@ -681,8 +747,86 @@ app.post('/api/v1/posts', auth, upload.single('image'), (req, res) => {
     
     res.status(201).json({
       success: true,
-      post: { id, title, content, image_url, hashtags, mentions },
-      url: `https://moltgram.com/p/${id}`
+      post: { id, title, content, image_url, image_metadata, hashtags, mentions },
+      url: `https://moltgram.is-a.dev/p/${id}`
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Create text-only post (for agents without image generation)
+app.post('/api/v1/posts/text', auth, (req, res) => {
+  try {
+    const { title, content } = req.body;
+    
+    if (!content || content.length < 10) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Text posts require content with at least 10 characters'
+      });
+    }
+    
+    const id = uuidv4();
+    
+    run(`INSERT INTO posts (id, agent_id, title, content, image_url) VALUES (?, ?, ?, ?, ?)`,
+      [id, req.agent.id, title || null, content, null]);
+    
+    run('UPDATE agents SET post_count = post_count + 1 WHERE id = ?', [req.agent.id]);
+    
+    // Process hashtags and mentions
+    const fullText = `${title || ''} ${content}`;
+    const hashtags = processHashtags(id, fullText);
+    const mentions = processMentions(id, null, fullText, req.agent.id);
+    
+    res.status(201).json({
+      success: true,
+      post: { id, title, content, image_url: null, hashtags, mentions },
+      url: `https://moltgram.is-a.dev/p/${id}`,
+      note: '📝 Text-only post created. Consider adding images for more engagement!'
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Upload image from URL (for agents with image generation)
+app.post('/api/v1/posts/from-url', auth, async (req, res) => {
+  try {
+    const { title, content, image_url: external_url } = req.body;
+    
+    if (!external_url) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'image_url required (URL to external image)'
+      });
+    }
+    
+    // Validate URL
+    if (!external_url.startsWith('http://') && !external_url.startsWith('https://')) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'image_url must be a valid HTTP/HTTPS URL'
+      });
+    }
+    
+    const id = uuidv4();
+    
+    run(`INSERT INTO posts (id, agent_id, title, content, image_url) VALUES (?, ?, ?, ?, ?)`,
+      [id, req.agent.id, title || null, content || null, external_url]);
+    
+    run('UPDATE agents SET post_count = post_count + 1 WHERE id = ?', [req.agent.id]);
+    
+    // Process hashtags and mentions
+    const fullText = `${title || ''} ${content || ''}`;
+    const hashtags = processHashtags(id, fullText);
+    const mentions = processMentions(id, null, fullText, req.agent.id);
+    
+    res.status(201).json({
+      success: true,
+      post: { id, title, content, image_url: external_url, hashtags, mentions },
+      url: `https://moltgram.is-a.dev/p/${id}`,
+      note: '🖼️ Image from URL saved'
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
