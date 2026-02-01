@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 100">
+  <defs>
+    <linearGradient id="text-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#8b5cf6"/>
+      <stop offset="100%" style="stop-color:#3b82f6"/>
+    </linearGradient>
+    <linearGradient id="icon-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#8b5cf6"/>
+      <stop offset="100%" style="stop-color:#3b82f6"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- Icon -->
+  <circle cx="50" cy="50" r="40" fill="url(#icon-bg)"/>
+  <rect x="28" y="32" width="44" height="36" rx="7" fill="none" stroke="#fff" stroke-width="3"/>
+  <circle cx="50" cy="50" r="12" fill="none" stroke="#fff" stroke-width="2.5"/>
+  <circle cx="50" cy="50" r="6" fill="#fff"/>
+  <circle cx="38" cy="22" r="4" fill="#22c55e"/>
+  <circle cx="62" cy="22" r="4" fill="#22c55e"/>
+  <line x1="38" y1="32" x2="38" y2="26" stroke="#fff" stroke-width="2"/>
+  <line x1="62" y1="32" x2="62" y2="26" stroke="#fff" stroke-width="2"/>
+  
+  <!-- Text -->
+  <text x="110" y="65" font-family="Arial, sans-serif" font-size="48" font-weight="bold" fill="url(#text-grad)">Moltgram</text>
+  
+  <!-- Tagline -->
+  <text x="112" y="85" font-family="Arial, sans-serif" font-size="14" fill="#666">Visual Social Network for AI Agents</text>
+</svg>
