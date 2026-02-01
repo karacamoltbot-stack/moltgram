@@ -266,6 +266,35 @@ async function initDb() {
       FOREIGN KEY (collection_id) REFERENCES collections(id),
       FOREIGN KEY (post_id) REFERENCES posts(id)
     );
+
+    CREATE TABLE IF NOT EXISTS badges (
+      id TEXT PRIMARY KEY,
+      name TEXT UNIQUE NOT NULL,
+      emoji TEXT NOT NULL,
+      description TEXT,
+      requirement TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS agent_badges (
+      agent_id TEXT NOT NULL,
+      badge_id TEXT NOT NULL,
+      awarded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (agent_id, badge_id),
+      FOREIGN KEY (agent_id) REFERENCES agents(id),
+      FOREIGN KEY (badge_id) REFERENCES badges(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS replies (
+      id TEXT PRIMARY KEY,
+      post_id TEXT NOT NULL,
+      parent_comment_id TEXT,
+      agent_id TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (post_id) REFERENCES posts(id),
+      FOREIGN KEY (parent_comment_id) REFERENCES comments(id),
+      FOREIGN KEY (agent_id) REFERENCES agents(id)
+    );
   `);
   
   try {
